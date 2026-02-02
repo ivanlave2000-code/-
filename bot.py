@@ -9,10 +9,9 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
 from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove, CallbackQuery
 from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram import BaseMiddleware
 
 # Імпорти із твоїх файлів
-from config import BOT_TOKEN, ADMIN_ID, ALLOWED_USERS
+from config import BOT_TOKEN, ADMIN_ID
 from data import get_films, films_keyboard_markup, save_film, delete_film_by_code, get_film_by_code
 
 # --- НАЛАШТУВАННЯ ЛОГУВАННЯ ---
@@ -50,40 +49,44 @@ def is_text_valid(message: Message):
 @dp.message(Command("start"))
 async def start_command(message: Message, state: FSMContext):
     await state.clear()
+    logging.info(f"Користувач {message.from_user.id} запустив бота")
     await message.answer(
         f"👋 Вітаю, <b>{message.from_user.full_name}</b>!\n\n"
         "🎬 Я кіно-бот.\n"
         "🔹 /films — список всіх фільмів\n"
         "🔹 /find <code>назва</code> — пошук\n"
     )
-    if message.from_user.id == ADMIN_ID:
+    if str(message.from_user.id) == str(ADMIN_ID):
         await message.answer("👑 Ви адмін. Команди:\n/add — додати\n/delfilm — видалити")
 
+# --- ЛОГІКА ДОДАВАННЯ (АДМІН-КОМАНДИ) ---
 
 @dp.message(Command("add"))
 async def add_content_start(message: Message, state: FSMContext):
-    if message.from_user.id != ADMIN_ID: return
+    if str(message.from_user.id) != str(ADMIN_ID):
+        logging.warning(f"Спроба доступу до /add відхилена для {message.from_user.id}")
+        return
+    
     await state.clear()
     await state.set_state(AddContent.id)
-    await message.answer("🔢 Шаг 1: Введіть <b>код</b> контенту (наприклад, 101):")
+    await message.answer("🔢 <b>Крок 1:</b> Введіть код контенту (наприклад, 101):")
 
 @dp.message(AddContent.id)
 async def process_id(message: Message, state: FSMContext):
     if not is_text_valid(message):
         await message.answer("⚠ Введіть коректний код:")
         return
-    
     if get_film_by_code(str(message.text)):
         await message.answer(f"❌ Код <b>{message.text}</b> вже зайнятий!")
         return
-
+    
     await state.update_data(id=message.text)
     markup = ReplyKeyboardMarkup(
         keyboard=[[KeyboardButton(text="🎬 Фільм"), KeyboardButton(text="📺 Серіал")]],
         resize_keyboard=True, one_time_keyboard=True
     )
     await state.set_state(AddContent.type)
-    await message.answer("🎬 Шаг 2: Оберіть тип контенту:", reply_markup=markup)
+    await message.answer("🎬 <b>Крок 2:</b> Оберіть тип контенту:", reply_markup=markup)
 
 @dp.message(AddContent.type)
 async def process_type(message: Message, state: FSMContext):
@@ -93,19 +96,19 @@ async def process_type(message: Message, state: FSMContext):
     content_type = "Серіал" if "Серіал" in message.text else "Фільм"
     await state.update_data(type=content_type)
     await state.set_state(AddContent.name)
-    await message.answer(f"📝 Шаг 3: Назва {content_type.lower()}у:", reply_markup=ReplyKeyboardRemove())
+    await message.answer(f"📝 <b>Крок 3:</b> Назва {content_type.lower()}у:", reply_markup=ReplyKeyboardRemove())
 
 @dp.message(AddContent.name)
 async def process_name(message: Message, state: FSMContext):
     await state.update_data(name=message.text)
     await state.set_state(AddContent.genre)
-    await message.answer("🎭 Шаг 4: Введіть жанр:")
+    await message.answer("🎭 <b>Крок 4:</b> Введіть жанр:")
 
 @dp.message(AddContent.genre)
 async def process_genre(message: Message, state: FSMContext):
     await state.update_data(genre=message.text)
     await state.set_state(AddContent.rating)
-    await message.answer("⭐ Шаг 5: Рейтинг:")
+    await message.answer("⭐ <b>Крок 5:</b> Рейтинг:")
 
 @dp.message(AddContent.rating)
 async def process_rating(message: Message, state: FSMContext):
@@ -113,35 +116,28 @@ async def process_rating(message: Message, state: FSMContext):
     data = await state.get_data()
     if data['type'] == "Серіал":
         await state.set_state(AddContent.seasons)
-        await message.answer("🔢 Шаг 6: Кількість сезонів:")
+        await message.answer("🔢 <b>Крок 6:</b> Кількість сезонів:")
     else:
         await state.update_data(seasons="Фільм")
         await state.set_state(AddContent.description)
-        await message.answer("📖 Шаг 6: Опис фільма:")
+        await message.answer("📖 <b>Крок 6:</b> Опис фільма:")
 
 @dp.message(AddContent.seasons)
 async def process_seasons(message: Message, state: FSMContext):
     await state.update_data(seasons=message.text)
     await state.set_state(AddContent.description)
-    await message.answer("📖 Шаг 7: Опис:")
+    await message.answer("📖 <b>Крок 7:</b> Опис:")
 
 @dp.message(AddContent.description)
 async def process_desc(message: Message, state: FSMContext):
     await state.update_data(description=message.text)
     await state.set_state(AddContent.poster)
-    await message.answer("🖼 Шаг 8: Відправте фото або напишіть 'нет':")
+    await message.answer("🖼 <b>Крок 8:</b> Надішліть фото або напишіть 'нет':")
 
 @dp.message(AddContent.poster)
 async def process_poster(message: Message, state: FSMContext):
     data = await state.get_data()
-    
-    photo_id = None
-    if message.photo:
-        photo_id = message.photo[-1].file_id
-    elif message.text and message.text.lower() == 'нет':
-        photo_id = None
-    elif message.text:
-        photo_id = message.text
+    photo_id = message.photo[-1].file_id if message.photo else (None if message.text and message.text.lower() == 'нет' else message.text)
 
     new_item = {
         "id": data.get('id'), "type": data.get('type'), "name": data.get('name'),
@@ -150,6 +146,7 @@ async def process_poster(message: Message, state: FSMContext):
     }
 
     if save_film(new_item):
+        logging.info(f"Адмін додав новий контент: {data.get('name')}")
         await message.answer("✅ Додано успішно!")
     else:
         await message.answer("❌ Помилка при збереженні!")
@@ -159,25 +156,26 @@ async def process_poster(message: Message, state: FSMContext):
 
 @dp.message(Command("delfilm"))
 async def delfilm_command(message: Message, state: FSMContext):
-    if message.from_user.id != ADMIN_ID: return
+    if str(message.from_user.id) != str(ADMIN_ID):
+        return
     await state.set_state(DeleteFilm.code)
-    await message.answer("🗑 Введіть код фільму для видалення:")
+    await message.answer("🗑 Введіть код контенту для видалення:")
 
 @dp.message(DeleteFilm.code)
 async def process_delete_code(message: Message, state: FSMContext):
     if delete_film_by_code(message.text):
+        logging.info(f"Адмін видалив контент із кодом {message.text}")
         await message.answer("✅ Видалено!")
     else:
         await message.answer("❌ Код не знайдено!")
     await state.clear()
 
-# --- ОБРОБКА ВИБОРУ З СПИСКУ ---
+# --- ОБРОБКА КНОПОК СПИСКУ ---
 
 @dp.callback_query(F.data.startswith("film_"))
 async def process_film_callback(callback: CallbackQuery):
     code = callback.data.split("_")[1]
     found = get_film_by_code(code)
-    
     if found:
         season_info = f"\n🔢 Сезонів: {found['seasons']}" if found.get('type') == "Серіал" else ""
         text = (f"🎬 <b>{found['name']}</b> ({found.get('type', 'Фільм')})\n\n"
@@ -187,7 +185,8 @@ async def process_film_callback(callback: CallbackQuery):
         if found.get('poster'):
             try:
                 await callback.message.answer_photo(photo=found['poster'], caption=text)
-            except:
+            except Exception as e:
+                logging.error(f"Помилка відправки фото: {e}")
                 await callback.message.answer(text)
         else:
             await callback.message.answer(text)
@@ -211,9 +210,9 @@ async def find_command(message: Message):
     if len(parts) < 2:
         await message.answer("🔍 Введіть назву! Приклад: /find Гарфілд")
         return
+    
     query = parts[1].strip().lower()
     films_list = get_films()
-    
     found = next((f for f in films_list if query in f['name'].lower()), None)
     
     if found:
@@ -221,7 +220,10 @@ async def find_command(message: Message):
         text = (f"🎬 <b>{found['name']}</b>\n\n⭐ Рейтинг: {found.get('rating')}\n"
                 f"🎭 Жанр: {found.get('genre')}{season_info}\n\n📖 {found.get('description')}")
         if found.get('poster'):
-            await message.answer_photo(photo=found['poster'], caption=text)
+            try:
+                await message.answer_photo(photo=found['poster'], caption=text)
+            except Exception:
+                await message.answer(text)
         else:
             await message.answer(text)
     else:
@@ -230,7 +232,7 @@ async def find_command(message: Message):
 # --- ЗАПУСК ---
 async def main():
     await bot.delete_webhook(drop_pending_updates=True)
-    print("🚀 Бот запущен!")
+    print("🚀 Бот запущено успішно!")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
