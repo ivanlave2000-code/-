@@ -10,7 +10,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove, CallbackQuery
 from aiogram.fsm.storage.memory import MemoryStorage
 
-# Імпорти із твоїх файлів
+# Імпорти із ваших файлів
 from config import BOT_TOKEN, ADMIN_ID
 from data import get_films, films_keyboard_markup, save_film, delete_film_by_code, get_film_by_code
 
